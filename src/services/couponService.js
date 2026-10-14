@@ -1,0 +1,1 @@
+import api from './api';export const getCoupons=()=>api.get('/coupons');export const createCoupon=d=>api.post('/coupons',d);export const updateCoupon=(id,d)=>api.put(`/coupons/${id}`,d);export const deleteCoupon=id=>api.delete(`/coupons/${id}`);

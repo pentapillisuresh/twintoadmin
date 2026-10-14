@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+.next/
+out/
+coverage/
+
+# Expo, if used
+.expo/
+web-build/
+
+# Logs and caches
+*.log
+npm-debug.log*
+.cache/
+.eslintcache
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor settings
+.idea/
+.vscode/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx

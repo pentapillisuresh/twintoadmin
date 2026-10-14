@@ -1,0 +1,1 @@
+import api from './api';export const getLocations=()=>api.get('/locations');export const createLocation=d=>api.post('/locations',d);export const updateLocation=(id,d)=>api.put(`/locations/${id}`,d);export const deleteLocation=id=>api.delete(`/locations/${id}`);

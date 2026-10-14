@@ -1,0 +1,1 @@
+import api from './api';export const getCategories=()=>api.get('/categories/admin/all');export const createCategory=d=>api.post('/categories',d);export const updateCategory=(id,d)=>api.put(`/categories/${id}`,d);export const deleteCategory=id=>api.delete(`/categories/${id}`);
