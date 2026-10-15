@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 
 import {
@@ -12,6 +11,7 @@ import { getCategories } from "../services/categoryService";
 
 import Modal from "../components/common/Modal";
 import Loader from "../components/common/Loader";
+import ImageUpload from "../components/common/ImageUpload";
 
 const empty = {
   name: "",
@@ -30,10 +30,11 @@ const empty = {
   isActive: true,
 };
 
+/* Note: `image` is intentionally NOT in this list —
+   it's rendered separately via <ImageUpload /> below. */
 const productFields = [
   { key: "name", label: "Product Name", required: true },
   { key: "slug", label: "Slug" },
-  { key: "image", label: "Image URL" },
   {
     key: "price",
     label: "Selling Price (₹)",
@@ -144,6 +145,7 @@ export default function Products() {
               : "",
             rating: String(product.rating ?? 0),
             reviewCount: String(product.reviewCount ?? 0),
+            image: product.image || "",
           }
         : { ...empty }
     );
@@ -204,19 +206,12 @@ export default function Products() {
       return;
     }
 
-    if (
-      !Number.isFinite(rating) ||
-      rating < 0 ||
-      rating > 5
-    ) {
+    if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
       setError("Rating must be between 0 and 5.");
       return;
     }
 
-    if (
-      !Number.isInteger(reviewCount) ||
-      reviewCount < 0
-    ) {
+    if (!Number.isInteger(reviewCount) || reviewCount < 0) {
       setError("Review count must be a non-negative integer.");
       return;
     }
@@ -226,7 +221,7 @@ export default function Products() {
       name: form.name.trim(),
       slug: form.slug.trim(),
       description: form.description.trim(),
-      image: form.image.trim(),
+      image: (form.image || "").trim(),
       unit: form.unit.trim(),
       price,
       mrp,
@@ -255,8 +250,7 @@ export default function Products() {
       await loadData();
     } catch (err) {
       setError(
-        err.response?.data?.message ||
-          "Failed to save product."
+        err.response?.data?.message || "Failed to save product."
       );
     } finally {
       setSaving(false);
@@ -275,8 +269,7 @@ export default function Products() {
       await loadData();
     } catch (err) {
       setError(
-        err.response?.data?.message ||
-          "Failed to delete product."
+        err.response?.data?.message || "Failed to delete product."
       );
     }
   }
@@ -480,20 +473,12 @@ export default function Products() {
         }}
         title={editing ? "Edit Product" : "Add Product"}
       >
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4"
-        >
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {productFields.map((field) => (
               <div
                 key={field.key}
-                className={
-                  field.key === "name" ||
-                  field.key === "image"
-                    ? "sm:col-span-2"
-                    : ""
-                }
+                className={field.key === "name" ? "sm:col-span-2" : ""}
               >
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">
                   {field.label}
@@ -517,6 +502,16 @@ export default function Products() {
               </div>
             ))}
 
+            {/* Product image upload */}
+            <div className="sm:col-span-2">
+              <ImageUpload
+                value={form.image}
+                onChange={(url) => updateField("image", url)}
+                label="Product Image"
+              />
+            </div>
+
+            {/* Category */}
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-sm font-medium text-slate-700">
                 Category *
@@ -546,6 +541,7 @@ export default function Products() {
               </select>
             </div>
 
+            {/* Description */}
             <div className="sm:col-span-2">
               <label className="mb-1.5 block text-sm font-medium text-slate-700">
                 Description
@@ -563,6 +559,7 @@ export default function Products() {
               />
             </div>
 
+            {/* Toggles */}
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
                 type="checkbox"
@@ -621,8 +618,8 @@ export default function Products() {
               {saving
                 ? "Saving..."
                 : editing
-                  ? "Update Product"
-                  : "Create Product"}
+                ? "Update Product"
+                : "Create Product"}
             </button>
           </div>
         </form>

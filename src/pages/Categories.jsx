@@ -11,6 +11,7 @@ import {
 import Modal from "../components/common/Modal";
 import Loader from "../components/common/Loader";
 
+import ImageUpload from "../components/common/ImageUpload";
 const blank = {
   name: "",
   slug: "",
@@ -338,21 +339,11 @@ export default function Categories() {
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Image URL
-            </label>
-
-            <input
-              type="url"
-              value={form.image}
-              onChange={(event) =>
-                updateField("image", event.target.value)
-              }
-              placeholder="https://example.com/category.jpg"
-              className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-[#C9004F]"
-            />
-          </div>
+        <ImageUpload
+  value={form.image}
+  onChange={(url) => updateField("image", url)}
+  label="Category Image"
+/>
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
