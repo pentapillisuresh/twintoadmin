@@ -3,15 +3,19 @@ import { useEffect, useState } from "react";
 
 import {
   ShoppingBag,
-  IndianRupee,
   Users,
   CreditCard,
   RefreshCw,
   TrendingUp,
+  CheckCircle2,
 } from "lucide-react";
 
 import { getDashboardStats } from "../services/dashboardService";
 import Loader from "../components/common/Loader";
+
+// ==========================================
+// ORDER STATUSES
+// ==========================================
 
 const statuses = [
   "PLACED",
@@ -22,6 +26,10 @@ const statuses = [
   "CANCELLED",
 ];
 
+// ==========================================
+// HELPERS
+// ==========================================
+
 function formatCurrency(value) {
   return `₹${Number(value || 0).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
@@ -29,9 +37,17 @@ function formatCurrency(value) {
   })}`;
 }
 
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString("en-IN");
+}
+
+// ==========================================
+// STAT CARD
+// ==========================================
+
 function StatCard({ title, value, Icon, subtitle }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
+    <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-500">
           {title}
@@ -48,17 +64,25 @@ function StatCard({ title, value, Icon, subtitle }) {
         )}
       </div>
 
-      <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#C9004F] text-white">
-        <Icon size={22} />
+      <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#C9004F] text-white">
+        <Icon size={21} />
       </div>
     </div>
   );
 }
 
+// ==========================================
+// DASHBOARD
+// ==========================================
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // ========================================
+  // LOAD DASHBOARD
+  // ========================================
 
   async function loadDashboard() {
     setLoading(true);
@@ -66,10 +90,14 @@ export default function Dashboard() {
 
     try {
       const response = await getDashboardStats();
-      const result = response.data?.data ?? response.data;
+
+      const result =
+        response.data?.data ?? response.data;
 
       setData(result);
     } catch (err) {
+      console.error("[DASHBOARD ERROR]", err);
+
       setError(
         err.response?.data?.message ||
           "Failed to load dashboard statistics."
@@ -79,9 +107,17 @@ export default function Dashboard() {
     }
   }
 
+  // ========================================
+  // INITIAL LOAD
+  // ========================================
+
   useEffect(() => {
     loadDashboard();
   }, []);
+
+  // ========================================
+  // INITIAL LOADING
+  // ========================================
 
   if (loading && !data) {
     return (
@@ -90,6 +126,10 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  // ========================================
+  // INITIAL ERROR
+  // ========================================
 
   if (error && !data) {
     return (
@@ -104,13 +144,15 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-5">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+          <p className="text-sm text-red-700">
+            {error}
+          </p>
 
           <button
             type="button"
             onClick={loadDashboard}
-            className="mt-3 rounded-lg bg-[#C9004F] px-4 py-2 text-sm font-semibold text-white hover:bg-[#A90042]"
+            className="mt-3 rounded-lg bg-[#C9004F] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#A90042]"
           >
             Try Again
           </button>
@@ -119,44 +161,60 @@ export default function Dashboard() {
     );
   }
 
+  // ========================================
+  // DASHBOARD DATA
+  // ========================================
+
   const dashboard = data || {};
+
+  const totalOrders = formatNumber(
+    dashboard.totalOrders
+  );
+
+  const paidSales = formatCurrency(
+    dashboard.paidSales
+  );
+
+  const totalCustomers = formatNumber(
+    dashboard.totalCustomers
+  );
+
+  const statusCounts =
+    dashboard.statusCounts || {};
+
+  // ========================================
+  // SUMMARY CARDS
+  // ========================================
 
   const cards = [
     {
       title: "Total Orders",
-      value: Number(dashboard.totalOrders || 0).toLocaleString(
-        "en-IN"
-      ),
+      value: totalOrders,
       Icon: ShoppingBag,
-      subtitle: "All recorded orders",
-    },
-    {
-      title: "Total Sales",
-      value: formatCurrency(dashboard.totalSales),
-      Icon: IndianRupee,
-      subtitle: "Sales reported by backend",
+      subtitle: "Paid online and COD orders",
     },
     {
       title: "Paid Sales",
-      value: formatCurrency(dashboard.paidSales),
+      value: paidSales,
       Icon: CreditCard,
       subtitle: "Payments marked as paid",
     },
     {
       title: "Customers",
-      value: Number(
-        dashboard.totalCustomers || 0
-      ).toLocaleString("en-IN"),
+      value: totalCustomers,
       Icon: Users,
       subtitle: "Registered customer accounts",
     },
   ];
 
-  const statusCounts = dashboard.statusCounts || {};
+  // ========================================
+  // SCREEN
+  // ========================================
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* HEADER */}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
@@ -164,7 +222,8 @@ export default function Dashboard() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Monitor TWINTO orders, sales, and customers.
+            Monitor TWINTO orders, paid sales,
+            and customers.
           </p>
         </div>
 
@@ -172,22 +231,27 @@ export default function Dashboard() {
           type="button"
           onClick={loadDashboard}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RefreshCw
             size={16}
-            className={loading ? "animate-spin" : ""}
+            className={
+              loading ? "animate-spin" : ""
+            }
           />
 
-          Refresh Data
+          {loading
+            ? "Refreshing..."
+            : "Refresh Data"}
         </button>
       </div>
 
-      {/* Refresh error */}
+      {/* REFRESH ERROR */}
+
       {error && (
         <div
           role="alert"
-          className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+          className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
         >
           <span>{error}</span>
 
@@ -201,8 +265,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* SUMMARY CARDS */}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map((card) => (
           <StatCard
             key={card.title}
@@ -214,10 +279,11 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Order status */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {/* ORDER STATUS OVERVIEW */}
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-xl bg-pink-50 text-[#C9004F]">
+          <div className="grid h-10 w-10 place-items-center rounded-lg bg-pink-50 text-[#C9004F]">
             <TrendingUp size={20} />
           </div>
 
@@ -236,15 +302,15 @@ export default function Dashboard() {
           {statuses.map((status) => (
             <div
               key={status}
-              className="rounded-xl border border-slate-200 p-4 transition hover:border-pink-200 hover:bg-pink-50/30"
+              className="rounded-lg border border-slate-200 p-4 transition hover:border-pink-200 hover:bg-pink-50/30"
             >
               <p className="min-h-8 text-xs font-medium leading-4 text-slate-500">
                 {status.replaceAll("_", " ")}
               </p>
 
               <p className="mt-2 text-2xl font-bold text-slate-900">
-                {Number(statusCounts[status] || 0).toLocaleString(
-                  "en-IN"
+                {formatNumber(
+                  statusCounts[status]
                 )}
               </p>
             </div>
@@ -252,36 +318,46 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Sales information */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="font-semibold text-slate-900">
-          Sales Summary
-        </h2>
+      {/* PAYMENT SUMMARY */}
 
-        <p className="mt-1 text-sm text-slate-500">
-          Financial totals returned by your backend.
-        </p>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">
-              Total Sales
-            </p>
-
-            <p className="mt-2 text-xl font-bold text-slate-900">
-              {formatCurrency(dashboard.totalSales)}
-            </p>
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-lg bg-pink-50 text-[#C9004F]">
+            <CheckCircle2 size={20} />
           </div>
 
-          <div className="rounded-xl bg-pink-50 p-4">
-            <p className="text-sm text-slate-500">
-              Paid Sales
-            </p>
+          <div>
+            <h2 className="font-semibold text-slate-900">
+              Payment Summary
+            </h2>
 
-            <p className="mt-2 text-xl font-bold text-[#C9004F]">
-              {formatCurrency(dashboard.paidSales)}
+            <p className="text-sm text-slate-500">
+              Overview of payments marked as paid.
             </p>
           </div>
+        </div>
+
+        <div className="rounded-lg border border-pink-100 bg-pink-50/60 p-5">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 place-items-center rounded-lg bg-white text-[#C9004F]">
+              <CreditCard size={21} />
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-slate-600">
+                Paid Sales
+              </p>
+
+              <p className="mt-1 text-2xl font-bold text-[#C9004F]">
+                {paidSales}
+              </p>
+            </div>
+          </div>
+
+          <p className="mt-4 text-xs text-slate-500">
+            This amount is based on payments
+            recorded as paid by the backend.
+          </p>
         </div>
       </section>
     </div>

@@ -112,7 +112,7 @@ export default function Login() {
             name="email"
             type="email"
             autoComplete="username"
-            placeholder="admin@twinto.com"
+            placeholder="Enter your email"
             value={form.email}
             onChange={handleChange}
             required

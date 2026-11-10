@@ -2,37 +2,126 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getOrders } from "../services/orderService";
+import {
+  getOrders,
+  updateOrderStatus,
+} from "../services/orderService";
+
 import Loader from "../components/common/Loader";
 
 const statuses = [
   "PLACED",
-  "CONFIRMED",
-  "PACKING",
-  "OUT_FOR_DELIVERY",
+  "PREPARING",
   "DELIVERED",
-  "CANCELLED",
 ];
 
+function isEligibleOrder(order) {
+  const method = String(
+    order?.paymentMethod || ""
+  ).toUpperCase();
+
+  const payment = String(
+    order?.paymentStatus || ""
+  ).toUpperCase();
+
+  return (
+    method === "COD" ||
+    (method === "CASHFREE" && payment === "PAID")
+  );
+}
+
+function allowedNextStatuses(order) {
+  if (order?.status === "CANCELLED") {
+    return ["CANCELLED"];
+  }
+
+  return statuses.includes(order?.status)
+    ? statuses
+    : [order?.status || "PLACED", ...statuses];
+}
+
+function readableUnit(item) {
+  const value =
+    item?.productUnit ??
+    item?.unit ??
+    item?.weight ??
+    item?.product?.unit;
+
+  return value == null ? "" : String(value).trim();
+}
+
+function formattedQuantity(item) {
+  const count = Number(item?.quantity) || 0;
+  const unit = readableUnit(item);
+
+  if (!unit) {
+    return `${count} ${count === 1 ? "item" : "items"}`;
+  }
+
+  const match = unit.match(
+    /^(\d+(?:\.\d+)?)\s*(kg|g|gm|ml|l|ltr|litre|liter|pcs|pc|piece|pieces|pack|packs)$/i
+  );
+
+  if (!match) {
+    return `${count} × ${unit}`;
+  }
+
+  const total = Number(match[1]) * count;
+  const type = match[2].toLowerCase();
+
+  if (type === "g" || type === "gm") {
+    return total >= 1000
+      ? `${total / 1000} kg`
+      : `${total} g`;
+  }
+
+  if (type === "ml") {
+    return total >= 1000
+      ? `${total / 1000} L`
+      : `${total} ml`;
+  }
+
+  if (
+    ["l", "ltr", "litre", "liter"].includes(type)
+  ) {
+    return `${total} L`;
+  }
+
+  if (
+    ["pc", "pcs", "piece", "pieces"].includes(type)
+  ) {
+    return `${total} ${
+      total === 1 ? "piece" : "pieces"
+    }`;
+  }
+
+  if (["pack", "packs"].includes(type)) {
+    return `${total} ${
+      total === 1 ? "pack" : "packs"
+    }`;
+  }
+
+  return `${total} kg`;
+}
+
 function formatCurrency(value) {
-  return `₹${Number(value || 0).toLocaleString("en-IN", {
-    maximumFractionDigits: 2,
-  })}`;
+  return `₹${Number(value || 0).toLocaleString(
+    "en-IN",
+    { maximumFractionDigits: 2 }
+  )}`;
 }
 
 function StatusBadge({ status }) {
   const styles = {
     PLACED: "bg-blue-50 text-blue-700",
-    CONFIRMED: "bg-indigo-50 text-indigo-700",
-    PACKING: "bg-amber-50 text-amber-700",
-    OUT_FOR_DELIVERY: "bg-purple-50 text-purple-700",
+    PREPARING: "bg-amber-50 text-amber-700",
     DELIVERED: "bg-emerald-50 text-emerald-700",
     CANCELLED: "bg-red-50 text-red-700",
   };
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+      className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${
         styles[status] || "bg-slate-100 text-slate-700"
       }`}
     >
@@ -47,6 +136,8 @@ export default function Orders() {
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [updatingId, setUpdatingId] = useState(null);
 
   async function loadOrders() {
     setLoading(true);
@@ -57,17 +148,20 @@ export default function Orders() {
         status ? { status } : {}
       );
 
-      const data = response.data?.data ?? response.data;
+      const data =
+        response.data?.data ?? response.data;
+
+      const allOrders = Array.isArray(data)
+        ? data
+        : data?.orders ?? [];
 
       setOrders(
-        Array.isArray(data)
-          ? data
-          : data?.orders ?? []
+        allOrders.filter(isEligibleOrder)
       );
     } catch (err) {
       setError(
         err.response?.data?.message ||
-          "Failed to load orders."
+        "Failed to load orders."
       );
     } finally {
       setLoading(false);
@@ -78,10 +172,47 @@ export default function Orders() {
     loadOrders();
   }, [status]);
 
+  async function changeStatus(order, nextStatus) {
+    if (
+      nextStatus === order.status ||
+      order.status === "CANCELLED"
+    ) {
+      return;
+    }
+
+    setUpdatingId(order.id);
+    setError("");
+    setSuccess("");
+
+    try {
+      await updateOrderStatus(
+        order.id,
+        nextStatus
+      );
+
+      await loadOrders();
+
+      setSuccess(
+        `Order ${
+          order.orderNumber || order.id
+        } updated to ${nextStatus}.`
+      );
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+        "Failed to update order status."
+      );
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   const filteredOrders = orders.filter((order) => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return true;
+    if (!query) {
+      return true;
+    }
 
     return [
       order.orderNumber,
@@ -90,7 +221,9 @@ export default function Orders() {
       order.user?.email,
       order.status,
     ].some((value) =>
-      String(value || "").toLowerCase().includes(query)
+      String(value || "")
+        .toLowerCase()
+        .includes(query)
     );
   });
 
@@ -104,7 +237,8 @@ export default function Orders() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Manage customer orders, payments, and delivery status.
+            Manage verified paid online orders and
+            cash-on-delivery orders.
           </p>
         </div>
 
@@ -123,21 +257,25 @@ export default function Orders() {
         <input
           type="search"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) =>
+            setSearch(event.target.value)
+          }
           placeholder="Search order number, customer or mobile..."
           className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 px-3 outline-none focus:border-[#C9004F] focus:ring-2 focus:ring-pink-100"
         />
 
         <select
           value={status}
-          onChange={(event) => setStatus(event.target.value)}
+          onChange={(event) =>
+            setStatus(event.target.value)
+          }
           className="h-11 rounded-xl border border-slate-200 px-3 outline-none focus:border-[#C9004F]"
         >
           <option value="">All Statuses</option>
 
           {statuses.map((item) => (
             <option key={item} value={item}>
-              {item.replaceAll("_", " ")}
+              {item}
             </option>
           ))}
         </select>
@@ -158,6 +296,16 @@ export default function Orders() {
           >
             ×
           </button>
+        </div>
+      )}
+
+      {/* Success */}
+      {success && (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
+        >
+          {success}
         </div>
       )}
 
@@ -192,13 +340,27 @@ export default function Orders() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
-                  <th className="p-4 text-left">Order</th>
-                  <th className="p-4 text-left">Customer</th>
-                  <th className="p-4 text-left">Total</th>
-                  <th className="p-4 text-left">Payment</th>
-                  <th className="p-4 text-left">Status</th>
-                  <th className="p-4 text-left">Date</th>
-                  <th className="p-4 text-right">Action</th>
+                  <th className="p-4 text-left">
+                    Order
+                  </th>
+                  <th className="p-4 text-left">
+                    Customer
+                  </th>
+                  <th className="p-4 text-left">
+                    Total
+                  </th>
+                  <th className="p-4 text-left">
+                    Payment
+                  </th>
+                  <th className="p-4 text-left">
+                    Status
+                  </th>
+                  <th className="p-4 text-left">
+                    Date
+                  </th>
+                  <th className="p-4 text-right">
+                    Action
+                  </th>
                 </tr>
               </thead>
 
@@ -208,16 +370,42 @@ export default function Orders() {
                     key={order.id}
                     className="border-t border-slate-100 transition hover:bg-slate-50"
                   >
+                    {/* Order */}
                     <td className="p-4">
                       <p className="font-semibold text-slate-900">
-                        {order.orderNumber || `#${order.id}`}
+                        {order.orderNumber ||
+                          `#${order.id}`}
                       </p>
+
+                      {Array.isArray(order.items) &&
+                        order.items.length > 0 && (
+                          <div className="mt-1 text-xs leading-5 text-slate-600">
+                            {order.items.map(
+                              (item, index) => (
+                                <div
+                                  key={
+                                    item.id ?? index
+                                  }
+                                >
+                                  {item.productName ||
+                                    item.name ||
+                                    "Product"}{" "}
+                                  ·{" "}
+                                  {formattedQuantity(
+                                    item
+                                  )}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
 
                       <p className="mt-1 text-xs text-slate-500">
                         ID: {order.id}
                       </p>
                     </td>
 
+                    {/* Customer */}
                     <td className="p-4">
                       <p className="font-medium text-slate-800">
                         {order.user?.name ||
@@ -227,35 +415,103 @@ export default function Orders() {
 
                       {order.user?.name && (
                         <p className="mt-1 text-xs text-slate-500">
-                          {order.user?.mobile || "-"}
+                          {order.user?.mobile ||
+                            "-"}
                         </p>
                       )}
                     </td>
 
+                    {/* Total */}
                     <td className="p-4 font-semibold text-slate-900">
-                      {formatCurrency(order.total)}
+                      {formatCurrency(
+                        order.total
+                      )}
                     </td>
 
+                    {/* Payment */}
                     <td className="p-4">
-                      <p>{order.paymentMethod || "-"}</p>
+                      <p className="font-semibold text-slate-800">
+                        {order.paymentMethod ===
+                        "COD"
+                          ? "Cash on Delivery"
+                          : "Cashfree Online"}
+                      </p>
 
                       <p className="mt-1 text-xs text-slate-500">
-                        {order.paymentStatus || "UNKNOWN"}
+                        {order.paymentStatus ||
+                          "UNKNOWN"}
                       </p>
                     </td>
 
+                    {/* Status */}
                     <td className="p-4">
-                      <StatusBadge status={order.status} />
+                      <div className="flex min-w-[175px] flex-col gap-2">
+                        <StatusBadge
+                          status={order.status}
+                        />
+
+                        <select
+                          aria-label={`Update status for order ${
+                            order.orderNumber ||
+                            order.id
+                          }`}
+                          value={
+                            order.status ||
+                            "PLACED"
+                          }
+                          disabled={
+                            updatingId ===
+                              order.id ||
+                            order.status ===
+                              "CANCELLED" ||
+                            !isEligibleOrder(
+                              order
+                            )
+                          }
+                          onChange={(event) =>
+                            changeStatus(
+                              order,
+                              event.target.value
+                            )
+                          }
+                          className="w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-[#C9004F] disabled:opacity-60"
+                        >
+                          {allowedNextStatuses(
+                            order
+                          ).map((item) => (
+                            <option
+                              key={item}
+                              value={item}
+                            >
+                              {item.replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </option>
+                          ))}
+                        </select>
+
+                        {updatingId ===
+                          order.id && (
+                          <span className="text-xs text-slate-500">
+                            Saving...
+                          </span>
+                        )}
+                      </div>
                     </td>
 
-                    <td className="p-4 whitespace-nowrap text-slate-600">
+                    {/* Date */}
+                    <td className="whitespace-nowrap p-4 text-slate-600">
                       {order.createdAt
                         ? new Date(
                             order.createdAt
-                          ).toLocaleDateString("en-IN")
+                          ).toLocaleDateString(
+                            "en-IN"
+                          )
                         : "-"}
                     </td>
 
+                    {/* Action */}
                     <td className="p-4 text-right">
                       <Link
                         to={`/orders/${order.id}`}

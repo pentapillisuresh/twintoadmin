@@ -11,14 +11,109 @@ import {
 
 import Loader from "../components/common/Loader";
 
-const statuses = [
-  "PLACED",
-  "CONFIRMED",
-  "PACKING",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-  "CANCELLED",
-];
+const statuses = ["PLACED", "PREPARING", "DELIVERED"];
+
+function isEligibleOrder(order) {
+  const method = String(order?.paymentMethod || "").toUpperCase();
+  const payment = String(order?.paymentStatus || "").toUpperCase();
+
+  return (
+    method === "COD" ||
+    (method === "CASHFREE" && payment === "PAID")
+  );
+}
+
+function allowedNextStatuses(order) {
+  if (order?.status === "CANCELLED") return ["CANCELLED"];
+
+  return statuses.includes(order?.status)
+    ? statuses
+    : [...new Set([order?.status || "PLACED", ...statuses])];
+}
+
+function readableUnit(item) {
+  const value =
+    item?.productUnit ??
+    item?.unit ??
+    item?.weight ??
+    item?.product?.unit;
+
+  return value == null ? "" : String(value).trim();
+}
+
+// Calculate total physical quantity:
+// 1kg x 2   = 2 kg
+// 500g x 3  = 1.5 kg
+// 250g x 2  = 500 g
+// 1L x 3    = 3 L
+
+function formattedQuantity(item) {
+  const count = Number(item?.quantity) || 0;
+  const unit = readableUnit(item);
+
+  if (!unit) {
+    return `${count} ${count === 1 ? "item" : "items"}`;
+  }
+
+  const match = unit.match(
+    /^(\d+(?:\.\d+)?)\s*(kg|g|gm|ml|l|ltr|litre|liter|pcs|pc|piece|pieces|pack|packs)$/i
+  );
+
+  if (!match) {
+    const simple = unit.toLowerCase();
+
+    if (["pc", "pcs", "piece", "pieces"].includes(simple)) {
+      return `${count} ${count === 1 ? "piece" : "pieces"}`;
+    }
+
+    if (["pack", "packs"].includes(simple)) {
+      return `${count} ${count === 1 ? "pack" : "packs"}`;
+    }
+
+    return `${count} × ${unit}`;
+  }
+
+  const amount = Number(match[1]) * count;
+  const type = match[2].toLowerCase();
+
+  if (type === "kg") return `${amount} kg`;
+
+  if (["g", "gm"].includes(type)) {
+    return amount >= 1000
+      ? `${amount / 1000} kg`
+      : `${amount} g`;
+  }
+
+  if (type === "ml") {
+    return amount >= 1000
+      ? `${amount / 1000} L`
+      : `${amount} ml`;
+  }
+
+  if (["l", "ltr", "litre", "liter"].includes(type)) {
+    return `${amount} L`;
+  }
+
+  if (["pc", "pcs", "piece", "pieces"].includes(type)) {
+    return `${amount} ${amount === 1 ? "piece" : "pieces"}`;
+  }
+
+  if (["pack", "packs"].includes(type)) {
+    return `${amount} ${amount === 1 ? "pack" : "packs"}`;
+  }
+
+  return `${count} × ${unit}`;
+}
+
+function quantityCalculation(item) {
+  const unit = readableUnit(item);
+  const count = Number(item?.quantity) || 0;
+  const total = formattedQuantity(item);
+
+  if (!unit) return total;
+
+  return `${unit} × ${count} = ${total}`;
+}
 
 function formatCurrency(value) {
   return `₹${Number(value || 0).toLocaleString("en-IN", {
@@ -30,9 +125,8 @@ function DetailRow({ label, value }) {
   return (
     <div className="flex items-start justify-between gap-4 py-2 text-sm">
       <span className="text-slate-500">{label}</span>
-
       <span className="text-right font-medium text-slate-800">
-        {value || "-"}
+        {value ?? "-"}
       </span>
     </div>
   );
@@ -45,8 +139,11 @@ export default function OrderDetails() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
   const [name, setName] = useState("");
   const [mobile, setMobile] = useState("");
+
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [sharing, setSharing] = useState(false);
@@ -61,7 +158,6 @@ export default function OrderDetails() {
       const result = data?.order ?? data;
 
       setOrder(result);
-
       setName(result?.assignedPersonName || "");
       setMobile(result?.assignedPersonMobile || "");
     } catch (err) {
@@ -81,33 +177,31 @@ export default function OrderDetails() {
   async function handleStatusChange(event) {
     const nextStatus = event.target.value;
 
-    if (!order || nextStatus === order.status) return;
-
-    const previousStatus = order.status;
+    if (
+      !order ||
+      nextStatus === order.status ||
+      order.status === "CANCELLED"
+    ) {
+      return;
+    }
 
     setError("");
+    setSuccess("");
     setUpdatingStatus(true);
 
     try {
-      const response = await updateOrderStatus(id, nextStatus);
+      await updateOrderStatus(id, nextStatus);
+
+      const response = await getOrderById(id);
       const data = response.data?.data ?? response.data;
 
-      setOrder((previous) => ({
-        ...previous,
-        ...(data?.order ?? data),
-        status:
-          (data?.order ?? data)?.status || nextStatus,
-      }));
+      setOrder(data?.order ?? data);
+      setSuccess("Order status updated successfully.");
     } catch (err) {
       setError(
         err.response?.data?.message ||
           "Failed to update order status."
       );
-
-      setOrder((previous) => ({
-        ...previous,
-        status: previousStatus,
-      }));
     } finally {
       setUpdatingStatus(false);
     }
@@ -115,7 +209,9 @@ export default function OrderDetails() {
 
   async function handleAssign(event) {
     event.preventDefault();
+
     setError("");
+    setSuccess("");
 
     if (!name.trim() || !mobile.trim()) {
       setError(
@@ -134,17 +230,18 @@ export default function OrderDetails() {
       );
 
       const data = response.data?.data ?? response.data;
+      const updated = data?.order ?? data;
 
       setOrder((previous) => ({
         ...previous,
-        ...(data?.order ?? data),
+        ...updated,
         assignedPersonName:
-          (data?.order ?? data)?.assignedPersonName ||
-          name.trim(),
+          updated?.assignedPersonName || name.trim(),
         assignedPersonMobile:
-          (data?.order ?? data)?.assignedPersonMobile ||
-          mobile.trim(),
+          updated?.assignedPersonMobile || mobile.trim(),
       }));
+
+      setSuccess("Delivery person assigned successfully.");
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -159,23 +256,31 @@ export default function OrderDetails() {
     setError("");
     setSharing(true);
 
+    // Open a tab immediately so browser popup blocking
+    // does not prevent navigation after the API request.
+    const tab = window.open("", "_blank");
+
     try {
       const response = await getWhatsAppDetails(id);
       const data = response.data?.data ?? response.data;
-
-      const url =
-        data?.whatsappUrl ||
-        data?.url;
+      const url = data?.whatsappUrl || data?.url;
 
       if (!url) {
+        tab?.close();
         setError(
           "The backend did not return a WhatsApp sharing URL."
         );
         return;
       }
 
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (tab) {
+        tab.opener = null;
+        tab.location.replace(url);
+      } else {
+        window.location.assign(url);
+      }
     } catch (err) {
+      tab?.close();
       setError(
         err.response?.data?.message ||
           "Failed to prepare WhatsApp message."
@@ -198,7 +303,7 @@ export default function OrderDetails() {
       <div className="space-y-4">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/orders")}
           className="text-sm font-medium text-[#C9004F]"
         >
           ← Back to Orders
@@ -211,15 +316,18 @@ export default function OrderDetails() {
     );
   }
 
-  const address = order.address || {};
-  const items = order.items || order.orderItems || [];
+  const address =
+    order.address || order.addressSnapshot || {};
+
+  const items =
+    order.items || order.orderItems || [];
 
   return (
     <div className="space-y-5">
       {/* Navigation */}
       <button
         type="button"
-        onClick={() => navigate(-1)}
+        onClick={() => navigate("/orders")}
         className="text-sm font-medium text-slate-500 hover:text-[#C9004F]"
       >
         ← Back to Orders
@@ -232,7 +340,6 @@ export default function OrderDetails() {
           className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
         >
           <p>{error}</p>
-
           <button
             type="button"
             onClick={() => setError("")}
@@ -243,10 +350,22 @@ export default function OrderDetails() {
         </div>
       )}
 
+      {/* Success */}
+      {success && (
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
+        >
+          {success}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-slate-500">Order Details</p>
+          <p className="text-sm text-slate-500">
+            Order Details
+          </p>
 
           <h1 className="mt-1 text-2xl font-bold text-slate-900">
             {order.orderNumber || `Order #${order.id}`}
@@ -266,18 +385,35 @@ export default function OrderDetails() {
 
           <select
             value={order.status || "PLACED"}
-            disabled={updatingStatus}
+            disabled={
+              updatingStatus ||
+              !isEligibleOrder(order) ||
+              order.status === "CANCELLED"
+            }
             onChange={handleStatusChange}
             className="h-11 rounded-xl border border-slate-200 px-3 outline-none focus:border-[#C9004F] disabled:opacity-50"
           >
-            {statuses.map((status) => (
+            {allowedNextStatuses(order).map((status) => (
               <option key={status} value={status}>
                 {status.replaceAll("_", " ")}
               </option>
             ))}
           </select>
+
+          {updatingStatus && (
+            <span className="text-xs text-slate-500">
+              Saving...
+            </span>
+          )}
         </div>
       </div>
+
+      {!isEligibleOrder(order) && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          This order is not eligible for fulfilment until
+          its Cashfree payment is verified.
+        </div>
+      )}
 
       {/* Main content */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -293,15 +429,19 @@ export default function OrderDetails() {
             </p>
           ) : (
             <div>
-              {items.map((item) => (
+              {items.map((item, index) => (
                 <div
-                  key={item.id}
+                  key={item.id ?? index}
                   className="flex items-center gap-3 border-b border-slate-100 py-4 last:border-0"
                 >
                   {item.productImage || item.image ? (
                     <img
                       src={item.productImage || item.image}
-                      alt={item.productName || item.name || "Product"}
+                      alt={
+                        item.productName ||
+                        item.name ||
+                        "Product"
+                      }
                       className="h-14 w-14 rounded-xl border border-slate-100 object-cover"
                     />
                   ) : (
@@ -317,13 +457,34 @@ export default function OrderDetails() {
                         "Product"}
                     </p>
 
-                    <p className="mt-1 text-sm text-slate-500">
+                    {/* Updated quantity calculation */}
+                    <div className="mt-2 rounded-lg bg-pink-50 px-3 py-2">
+                      <p className="text-xs font-medium text-slate-500">
+                        Total Product Quantity
+                      </p>
+
+                      <p className="mt-1 text-sm font-bold text-[#C9004F]">
+                        {formattedQuantity(item)}
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-600">
+                        {quantityCalculation(item)}
+                      </p>
+                    </div>
+
+                    <p className="mt-2 text-sm text-slate-500">
                       {formatCurrency(item.price)} ×{" "}
                       {item.quantity}
                     </p>
+
+                    {readableUnit(item) && (
+                      <p className="mt-1 text-xs text-slate-400">
+                        Pack size: {readableUnit(item)}
+                      </p>
+                    )}
                   </div>
 
-                  <p className="font-semibold text-slate-900">
+                  <p className="shrink-0 font-semibold text-slate-900">
                     {formatCurrency(
                       item.subtotal ??
                         Number(item.price || 0) *
@@ -399,12 +560,21 @@ export default function OrderDetails() {
 
             <DetailRow
               label="Payment Method"
-              value={order.paymentMethod}
+              value={
+                order.paymentMethod === "COD"
+                  ? "Cash on Delivery"
+                  : "Cashfree Online"
+              }
             />
 
             <DetailRow
               label="Payment Status"
               value={order.paymentStatus}
+            />
+
+            <DetailRow
+              label="Order Status"
+              value={order.status}
             />
           </section>
 
@@ -437,17 +607,13 @@ export default function OrderDetails() {
                   .join(", ") || "-"}
               </p>
 
-              <p>
-                {address.pincode
-                  ? `Pincode: ${address.pincode}`
-                  : ""}
-              </p>
+              {address.pincode && (
+                <p>Pincode: {address.pincode}</p>
+              )}
 
-              <p>
-                {address.mobile
-                  ? `Mobile: ${address.mobile}`
-                  : ""}
-              </p>
+              {address.mobile && (
+                <p>Mobile: {address.mobile}</p>
+              )}
             </div>
           </section>
 
@@ -500,10 +666,16 @@ export default function OrderDetails() {
 
               <button
                 type="submit"
-                disabled={assigning}
+                disabled={
+                  assigning ||
+                  order.status === "CANCELLED" ||
+                  order.status === "DELIVERED"
+                }
                 className="h-11 w-full rounded-xl bg-[#C9004F] font-semibold text-white hover:bg-[#A90042] disabled:opacity-50"
               >
-                {assigning ? "Assigning..." : "Assign Person"}
+                {assigning
+                  ? "Assigning..."
+                  : "Assign Person"}
               </button>
             </form>
 
